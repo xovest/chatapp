@@ -3,7 +3,7 @@ import {
   ApolloClient, 
   InMemoryCache, 
   ApolloProvider, 
-  useQuery, 
+  useSubscription, 
   gql,
   useMutation
 } from '@apollo/client';
@@ -14,6 +14,16 @@ import {
   FormInput,
   Button
 } from 'shards-react';
+import express from 'express';
+import {
+  graphqlExpress,
+  graphiqlExpress,
+} from 'apollo-server-express';
+import bodyParser from 'body-parser';
+import cors from 'cors';
+import { execute, subscribe } from 'graphql';
+import { createServer } from 'http';
+import { SubscriptionServer } from 'subscriptions-transport-ws';
 
 const client = new ApolloClient({
   uri: 'http://localhost:4000/',
@@ -21,7 +31,7 @@ const client = new ApolloClient({
 });
 
 const GET_MESSAGES = gql`
-  query {
+  subscription {
     messages {
       id
       content
@@ -36,8 +46,39 @@ const POST_MESSAGE = gql`
   }
 `;
 
+const PORT = 4000;
+const server = express();
+
+server.use('*', cors({ origin: `http://localhost:${PORT}` }));
+
+server.use('/graphql', bodyParser.json(), graphqlExpress({
+  GET_MESSAGES,
+  POST_MESSAGE
+}));
+
+server.use('/graphiql', graphiqlExpress({
+  endpointURL: '/graphql',
+  subscriptionsEndpoint: `ws://localhost:${PORT}/subscriptions`
+}));
+
+// Wrap the Express server
+const ws = createServer(server);
+ws.listen(PORT, () => {
+  console.log(`Apollo Server is now running on http://localhost:${PORT}`);
+  // Set up the WebSocket for handling GraphQL subscriptions
+  new SubscriptionServer({
+    execute,
+    subscribe,
+    GET_MESSAGES,
+    POST_MESSAGE
+  }, {
+    server: ws,
+    path: '/subscriptions',
+  });
+});
+
 const Messages = ({ user }) => {
-  const { data } = useQuery(GET_MESSAGES);
+  const { data } = useSubscription(GET_MESSAGES);
   if (!data) return null;
 
   return (
